@@ -1,30 +1,43 @@
 import os
 import sys
-import signal
 import subprocess
 import shlex
+import signal
+
+# 전역 변수 current_process 추가
+current_process = None
 
 # 1. exit 명령어로 프로그램 종료
 def exit_shell():
     sys.exit(0)  # 프로그램 종료
-
-# 3. 인터럽트 신호 처리 (SIGINT, SIGQUIT)
-def signal_handler(sig, frame):
-    if sig == signal.SIGINT:
-        pass  # Ctrl-C: 아무것도 하지 않고 계속 실행
-    elif sig == signal.SIGQUIT:
-        print("SIGQUIT: 프로그램을 종료하고 core dump가 생성됩니다.")  # 메시지 출력
-        os.abort()  # core dump 생성
 
 # 2. 백그라운드 실행
 def run_in_background(command):
     pid = os.fork()
     if pid == 0:  # 자식 프로세스
         os.setpgrp()  # 새 프로세스 그룹 생성
-        subprocess.run(command, shell=True)
+        subprocess.run(command, shell=True)  # 명시적으로 쉘을 사용
         sys.exit(0)
     else:
         print(f"백그라운드에서 실행 중. PID: {pid}")
+
+# 3. 인터럽트 신호 처리 (SIGINT, SIGQUIT)
+def signal_handler(sig, frame):
+    global current_process
+    if sig == signal.SIGINT:  # Ctrl-C: 실행 중인 명령어를 강제로 종료
+        if current_process is not None:
+            print("SIGINT: 실행 중인 명령어를 강제로 종료합니다.")
+            current_process.terminate()  # 자식 프로세스를 종료
+            current_process = None  # 자식 프로세스를 None으로 설정
+        else:
+            print("SIGINT: 현재 실행 중인 명령어가 없습니다.")
+    elif sig == signal.SIGQUIT:  # Ctrl-Z: 실행 중인 명령어를 일시 정지 또는 백그라운드로 전환
+        if current_process is not None:
+            print("SIGQUIT: 실행 중인 명령어를 일시 정지합니다.")
+            os.kill(current_process.pid, signal.SIGSTOP)  # 프로세스를 일시 정지
+            print("SIGQUIT: 실행 중인 명령어가 백그라운드로 전환되었습니다.")
+        else:
+            print("SIGQUIT: 현재 실행 중인 명령어가 없습니다.")
 
 # 4. 파일 재지향 및 파이프 처리
 def handle_redirection_and_pipe(command):
@@ -67,7 +80,8 @@ def handle_redirection_and_pipe(command):
 
     else:
         command_list = shlex.split(command)  # 공백을 포함한 명령어 인자 처리
-        subprocess.run(command_list, shell=True)
+        global current_process
+        current_process = subprocess.Popen(command_list)
 
 # 5. 기본 쉘 명령들 구현
 def handle_builtin_commands(command):
@@ -100,6 +114,19 @@ def handle_builtin_commands(command):
         subprocess.run(command, shell=True)
     elif command.startswith("cat"):
         subprocess.run(command, shell=True)
+    elif command.startswith("sleep"):  # sleep 명령어 처리 추가
+        command_list = shlex.split(command)
+        if len(command_list) > 1:
+            global current_process
+            current_process = subprocess.Popen(command_list)  # 현재 프로세스를 설정
+        else:
+            print("sleep: missing operand")
+    elif command.startswith("touch"):  # touch 명령어 처리 추가
+        command_list = shlex.split(command)
+        if len(command_list) > 1:
+            subprocess.run(command_list)
+        else:
+            print("touch: missing file operand")
     else:
         print(f"'{command}' 명령어를 찾을 수 없습니다.")
     return True  # 계속 쉘을 실행하려면 True 반환
