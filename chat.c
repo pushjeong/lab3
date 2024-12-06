@@ -7,7 +7,6 @@
 #include <pthread.h>
 
 #define MSG_SIZE 100
-ㅇㅇ
 // 메시지 구조체
 struct msg_buffer {
     long msg_type;
